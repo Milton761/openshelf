@@ -20,6 +20,8 @@ type RenditionLike = {
   next: () => Promise<void>;
   prev: () => Promise<void>;
   destroy: () => void;
+  resize: (width: number, height: number) => void;
+  spread: (mode: "none" | "auto") => void;
 };
 
 type BookLike = {
@@ -30,7 +32,7 @@ type BookLike = {
   };
   renderTo: (
     element: HTMLElement,
-    options: { width: string; height: string },
+    options: { width?: string | number; height?: string | number; spread?: string },
   ) => RenditionLike;
   destroy: () => void;
 };
@@ -46,6 +48,7 @@ function App() {
   const [toc, setToc] = useState<TocItem[]>([]);
   const [error, setError] = useState<string>("");
   const [hasBook, setHasBook] = useState(false);
+  const [viewMode, setViewMode] = useState<"single" | "double">("single");
 
   const destroyBook = () => {
     renditionRef.current?.destroy();
@@ -108,9 +111,11 @@ function App() {
         })),
       );
 
-      const rendition = book.renderTo(viewerRef.current!, {
-        width: "100%",
-        height: "100%",
+      const container = viewerRef.current!;
+      const rendition = book.renderTo(container, {
+        width: container.offsetWidth,
+        height: container.offsetHeight,
+        spread: viewMode === "double" ? "auto" : "none",
       });
 
       renditionRef.current = rendition;
@@ -141,6 +146,18 @@ function App() {
     }
   };
 
+  const toggleViewMode = () => {
+    setViewMode((prev) => (prev === "single" ? "double" : "single"));
+  };
+
+  useEffect(() => {
+    if (renditionRef.current && bookRef.current && viewerRef.current) {
+      const container = viewerRef.current;
+      renditionRef.current.spread(viewMode === "double" ? "auto" : "none");
+      renditionRef.current.resize(container.offsetWidth, container.offsetHeight);
+    }
+  }, [viewMode]);
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -168,6 +185,9 @@ function App() {
         </button>
         <button type="button" onClick={goNext} disabled={!hasBook}>
           Next
+        </button>
+        <button type="button" onClick={toggleViewMode} disabled={!hasBook}>
+          {viewMode === "single" ? "1 Page" : "2 Pages"}
         </button>
       </section>
 
