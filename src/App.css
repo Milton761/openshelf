@@ -104,12 +104,32 @@
 }
 
 .viewer-wrap {
+  position: relative;
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   padding: 0.4rem;
   background: var(--surface);
   min-height: 0;
   overflow: hidden;
+}
+
+.empty-state {
+  position: absolute;
+  inset: 0.4rem;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  gap: 0.35rem;
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.empty-state strong {
+  color: var(--text);
+}
+
+.empty-state p {
+  margin: 0;
 }
 
 .viewer {

@@ -241,6 +241,12 @@ function App() {
       </section>
 
       <article className="viewer-wrap">
+        {!hasBook && (
+          <div className="empty-state" role="status" aria-live="polite">
+            <strong>No book selected</strong>
+            <p>Open an EPUB file to start reading.</p>
+          </div>
+        )}
         <div ref={viewerRef} className="viewer" />
       </article>
     </main>
