@@ -347,6 +347,45 @@ function App() {
         metadataEl.appendChild(metaCover);
       }
 
+      // Attempt to insert the cover image into the first spine item (first page)
+      try {
+        const spine = opfDoc.querySelector("spine");
+        const firstItemref = spine?.querySelector("itemref");
+        const idref = firstItemref?.getAttribute("idref");
+        if (idref) {
+          const manifestItem = opfDoc.querySelector(`manifest > item[id="${idref}"]`);
+          const firstHref = manifestItem?.getAttribute("href");
+          if (firstHref) {
+            const firstPath = basePath + firstHref;
+            const firstFile = zip.file(firstPath);
+            if (firstFile) {
+              const firstText = await firstFile.async("text");
+              const firstDoc = parser.parseFromString(firstText, "text/html");
+
+              const body = firstDoc.querySelector("body");
+              if (body) {
+                const existingCoverImg = body.querySelector('img[src$="cover.jpg"]');
+                if (!existingCoverImg) {
+                  const wrapper = firstDoc.createElement("div");
+                  wrapper.setAttribute("class", "cover-wrapper");
+                  const img = firstDoc.createElement("img");
+                  img.setAttribute("src", `images/cover.jpg`);
+                  img.setAttribute("alt", "Cover");
+                  wrapper.appendChild(img);
+                  body.insertBefore(wrapper, body.firstChild);
+
+                  const localSerializer = new XMLSerializer();
+                  const newFirstText = localSerializer.serializeToString(firstDoc);
+                  zip.file(firstPath, newFirstText);
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // non-fatal: if we can't inject into the first page, continue
+      }
+
       const serializer = new XMLSerializer();
       const newOpfText = serializer.serializeToString(opfDoc);
       zip.file(opfPath, newOpfText);
