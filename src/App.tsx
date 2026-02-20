@@ -182,6 +182,19 @@ function App() {
     }
   }, [applyReaderStyles]);
 
+  useEffect(() => {
+    // Apply theme globally by toggling a class on the root element
+    try {
+      if (isDarkMode) {
+        document.documentElement.classList.add("theme-dark");
+      } else {
+        document.documentElement.classList.remove("theme-dark");
+      }
+    } catch {
+      /* ignore in non-browser environments */
+    }
+  }, [isDarkMode]);
+
   return (
     <main className={`app-shell ${isDarkMode ? "theme-dark" : "theme-light"}`}>
       <header className="topbar">
