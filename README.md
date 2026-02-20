@@ -37,6 +37,7 @@ OpenShelf is a simple local EPUB reader built with React and Vite.
 - Feature skill: `.agents/skills/openshelf-feature/SKILL.md`
 - Bugfix skill: `.agents/skills/openshelf-bugfix/SKILL.md`
 - Docs/release skill: `.agents/skills/openshelf-docs-release/SKILL.md`
+- Docs maintainer skill: `.agents/skills/openshelf-docs-maintainer/SKILL.md`
 - Git workflow skill: `.agents/skills/openshelf-git-ops/SKILL.md`
 
 ## Notes

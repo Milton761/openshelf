@@ -35,4 +35,5 @@ This repository is designed to be maintained by AI coding agents.
 - `.agents/skills/openshelf-feature/SKILL.md`
 - `.agents/skills/openshelf-bugfix/SKILL.md`
 - `.agents/skills/openshelf-docs-release/SKILL.md`
+- `.agents/skills/openshelf-docs-maintainer/SKILL.md`
 - `.agents/skills/openshelf-git-ops/SKILL.md`
