@@ -49,6 +49,7 @@ function App() {
   const [coverCandidates, setCoverCandidates] = useState<
     { url: string; source: string; title?: string; id?: string }[]
   >([]);
+  const [selectedCoverUrl, setSelectedCoverUrl] = useState<string | null>(null);
   const [coverPanelOpen, setCoverPanelOpen] = useState(false);
   const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
   const [coverLoading, setCoverLoading] = useState(false);
@@ -267,6 +268,26 @@ function App() {
     setCoverLoadingMessage(null);
   };
 
+  const queryAmazonCandidates = async () => {
+    setCoverLoading(true);
+    setCoverLoadingMessage('Searching Amazon (proxy)...');
+    const meta = await bookRef.current?.loaded.metadata.catch(() => ({} as Metadata));
+    const searchTitle = meta?.title || title || fileName || '';
+    try {
+      const resp = await fetch(`http://localhost:4001/search?query=${encodeURIComponent(searchTitle)}`);
+      const json = await resp.json();
+      if (Array.isArray(json)) {
+        const candidates = json.map((x) => ({ url: x.url, source: x.source || 'Amazon', title: x.title }));
+        setCoverCandidates(candidates);
+        setCoverPanelOpen(true);
+      }
+    } catch {
+      setError('Failed to fetch Amazon candidates; ensure the local proxy is running.');
+    }
+    setCoverLoading(false);
+    setCoverLoadingMessage(null);
+  };
+
   const applyCoverToEpub = async (imageUrl: string) => {
     if (!fileBuffer) {
       setError("Original EPUB file not available to modify.");
@@ -463,6 +484,9 @@ function App() {
         <button type="button" onClick={queryCoverCandidates} disabled={!hasBook}>
           Find covers
         </button>
+        <button type="button" onClick={queryAmazonCandidates} disabled={!hasBook}>
+          Find Amazon covers
+        </button>
       </section>
 
       <article className="viewer-wrap">
@@ -490,13 +514,15 @@ function App() {
           <div className="cover-grid">
             {coverCandidates.length === 0 && <p>No candidates found.</p>}
             {coverCandidates.map((c, idx) => (
-              <div key={idx} className="cover-item">
-                <img src={c.url} alt={c.title || "cover"} />
+              <div
+                key={idx}
+                className={`cover-item ${selectedCoverUrl === c.url ? 'selected' : ''}`}
+                onClick={() => setSelectedCoverUrl(c.url)}
+                role="button"
+                tabIndex={0}
+              >
+                <img src={c.url} alt={c.title || 'cover'} />
                 <div className="meta">{c.source}</div>
-                <div className="actions">
-                  <a href={c.url} target="_blank" rel="noreferrer">Open</a>
-                  <button onClick={() => applyCoverToEpub(c.url)} disabled={coverLoading}>Use as cover</button>
-                </div>
               </div>
             ))}
             <div className="cover-item">
@@ -517,6 +543,11 @@ function App() {
                   Use URL
                 </button>
               </div>
+            </div>
+            <div style={{gridColumn: '1/-1', display: 'flex', gap: 8, justifyContent: 'flex-end'}}>
+              <button disabled={!selectedCoverUrl || coverLoading} onClick={() => selectedCoverUrl && applyCoverToEpub(selectedCoverUrl)}>
+                Use selected cover
+              </button>
             </div>
           </div>
           {coverLoading && (

@@ -201,6 +201,10 @@
   align-items: center;
 }
 
+.cover-item.selected {
+  outline: 3px solid #60a5fa;
+}
+
 .cover-item img {
   width: 120px;
   height: 160px;
