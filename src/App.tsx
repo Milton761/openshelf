@@ -50,6 +50,7 @@ function App() {
     { url: string; source: string; title?: string; id?: string }[]
   >([]);
   const [coverPanelOpen, setCoverPanelOpen] = useState(false);
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"single" | "double">("single");
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [fontScale, setFontScale] = useState(100);
@@ -323,8 +324,59 @@ function App() {
       zip.file(opfPath, newOpfText);
 
       const newBlob = await zip.generateAsync({ type: "blob" });
+      // show preview immediately
+      try {
+        const imgResp = await fetch(imageUrl);
+        const imgBuf = await imgResp.blob();
+        const previewUrl = URL.createObjectURL(imgBuf);
+        // revoke previous preview if present
+        if (coverPreviewUrl) URL.revokeObjectURL(coverPreviewUrl);
+        setCoverPreviewUrl(previewUrl);
+      } catch {
+        // ignore preview generation errors
+      }
+
       const outName = fileName ? fileName.replace(/\.epub$/i, "") + "-with-cover.epub" : "book-with-cover.epub";
       saveAs(newBlob, outName);
+
+      // reload reader from the modified EPUB so cover is reflected in-app
+      try {
+        const newUrl = URL.createObjectURL(newBlob);
+        // keep reference to revoke later
+        if (currentUrlRef.current) {
+          try {
+            URL.revokeObjectURL(currentUrlRef.current);
+          } catch {
+            /* ignore */
+          }
+        }
+        // destroy current in-memory book first
+        renditionRef.current?.destroy();
+        bookRef.current?.destroy();
+        renditionRef.current = null;
+        bookRef.current = null;
+        currentUrlRef.current = newUrl;
+
+        const newBook = ePub(newUrl) as unknown as BookLike;
+        bookRef.current = newBook;
+        await newBook.ready;
+        const metadata = await newBook.loaded.metadata;
+        setTitle(metadata.title || fileName);
+
+        if (!viewerRef.current) throw new Error("Viewer not ready");
+        const rendition = newBook.renderTo(viewerRef.current, {
+          width: viewerRef.current.offsetWidth,
+          height: viewerRef.current.offsetHeight,
+          spread: viewMode === "double" ? "auto" : "none",
+        });
+        renditionRef.current = rendition;
+        applyReaderStyles(rendition);
+        await rendition.display();
+        setHasBook(true);
+      } catch {
+        // ignore reload errors; book was saved/downloaded
+      }
+
       setCoverPanelOpen(false);
     } catch (err) {
       setError(String(err));
@@ -348,8 +400,15 @@ function App() {
       </header>
 
       <section className="book-meta">
-        <strong>{title}</strong>
-        <small>{fileName || "Choose an EPUB file to start reading."}</small>
+        <div className="meta-left">
+          <strong>{title}</strong>
+          <small>{fileName || "Choose an EPUB file to start reading."}</small>
+        </div>
+        {coverPreviewUrl && (
+          <div className="cover-thumb">
+            <img src={coverPreviewUrl} alt="cover preview" />
+          </div>
+        )}
       </section>
 
       {error && <p className="error-text">{error}</p>}

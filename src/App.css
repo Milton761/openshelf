@@ -79,6 +79,27 @@
   text-overflow: ellipsis;
 }
 
+.book-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.meta-left {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.cover-thumb img {
+  width: 56px;
+  height: 76px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
 .book-meta small {
   color: var(--text-muted);
 }
