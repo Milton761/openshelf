@@ -51,6 +51,9 @@ function App() {
   >([]);
   const [coverPanelOpen, setCoverPanelOpen] = useState(false);
   const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
+  const [coverLoading, setCoverLoading] = useState(false);
+  const [coverLoadingMessage, setCoverLoadingMessage] = useState<string | null>(null);
+  const [manualCoverUrl, setManualCoverUrl] = useState<string>("");
   const [viewMode, setViewMode] = useState<"single" | "double">("single");
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [fontScale, setFontScale] = useState(100);
@@ -207,6 +210,8 @@ function App() {
   }, [isDarkMode]);
 
   const queryCoverCandidates = async () => {
+    setCoverLoading(true);
+    setCoverLoadingMessage("Searching for cover candidates...");
     // Use title/author from metadata if available
     const meta = await bookRef.current?.loaded.metadata.catch(() => ({} as Metadata));
     const qParts: string[] = [];
@@ -258,6 +263,8 @@ function App() {
 
     setCoverCandidates(candidates);
     setCoverPanelOpen(true);
+    setCoverLoading(false);
+    setCoverLoadingMessage(null);
   };
 
   const applyCoverToEpub = async (imageUrl: string) => {
@@ -488,11 +495,36 @@ function App() {
                 <div className="meta">{c.source}</div>
                 <div className="actions">
                   <a href={c.url} target="_blank" rel="noreferrer">Open</a>
-                  <button onClick={() => applyCoverToEpub(c.url)}>Use as cover</button>
+                  <button onClick={() => applyCoverToEpub(c.url)} disabled={coverLoading}>Use as cover</button>
                 </div>
               </div>
             ))}
+            <div className="cover-item">
+              <label style={{width: '100%'}}>
+                Paste image URL
+                <input
+                  type="text"
+                  value={manualCoverUrl}
+                  onChange={(e) => setManualCoverUrl(e.target.value)}
+                  placeholder="https://.../cover.jpg"
+                />
+              </label>
+              <div className="actions">
+                <button
+                  onClick={() => manualCoverUrl && applyCoverToEpub(manualCoverUrl.trim())}
+                  disabled={coverLoading || !manualCoverUrl}
+                >
+                  Use URL
+                </button>
+              </div>
+            </div>
           </div>
+          {coverLoading && (
+            <div className="cover-loading">
+              <div className="spinner" />
+              <div>{coverLoadingMessage || "Working..."}</div>
+            </div>
+          )}
         </div>
       )}
     </main>
