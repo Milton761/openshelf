@@ -254,7 +254,7 @@ function App() {
           </select>
         </label>
 
-        <button type="button" onClick={() => setIsDarkMode((prev) => !prev)} disabled={!hasBook}>
+        <button type="button" onClick={() => setIsDarkMode((prev) => !prev)}>
           {isDarkMode ? "Light mode" : "Dark mode"}
         </button>
       </section>
