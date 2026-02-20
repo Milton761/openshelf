@@ -2,15 +2,6 @@ import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import ePub from "epubjs";
 import "./App.css";
 
-type TocItem = {
-  href: string;
-  label: string;
-};
-
-type Navigation = {
-  toc?: TocItem[];
-};
-
 type Metadata = {
   title?: string;
 };
@@ -32,7 +23,6 @@ type BookLike = {
   ready: Promise<unknown>;
   loaded: {
     metadata: Promise<Metadata>;
-    navigation: Promise<Navigation>;
   };
   renderTo: (
     element: HTMLElement,
@@ -49,7 +39,6 @@ function App() {
 
   const [fileName, setFileName] = useState<string>("");
   const [title, setTitle] = useState<string>("No book loaded");
-  const [toc, setToc] = useState<TocItem[]>([]);
   const [error, setError] = useState<string>("");
   const [hasBook, setHasBook] = useState(false);
   const [viewMode, setViewMode] = useState<"single" | "double">("single");
@@ -68,6 +57,7 @@ function App() {
         body: {
           "background-color": isDarkMode ? "#111827" : "#ffffff",
           color: isDarkMode ? "#f9fafb" : "#111827",
+          margin: "0",
           "line-height": "1.6",
           "letter-spacing": `${letterSpacing}em`,
         },
@@ -111,7 +101,6 @@ function App() {
 
     setError("");
     setFileName(file.name);
-    setToc([]);
     setTitle("Loading...");
 
     destroyBook();
@@ -131,14 +120,6 @@ function App() {
 
       const metadata = await book.loaded.metadata;
       setTitle(metadata.title || file.name);
-
-      const navigation = await book.loaded.navigation;
-      setToc(
-        (navigation.toc || []).map((item) => ({
-          href: item.href,
-          label: item.label,
-        })),
-      );
 
       const container = viewerRef.current!;
       const rendition = book.renderTo(container, {
@@ -170,12 +151,6 @@ function App() {
     }
   };
 
-  const goToTocItem = async (href: string) => {
-    if (renditionRef.current) {
-      await renditionRef.current.display(href);
-    }
-  };
-
   const toggleViewMode = () => {
     setViewMode((prev) => (prev === "single" ? "double" : "single"));
   };
@@ -189,6 +164,18 @@ function App() {
   }, [viewMode]);
 
   useEffect(() => {
+    const onResize = () => {
+      if (renditionRef.current && viewerRef.current) {
+        const container = viewerRef.current;
+        renditionRef.current.resize(container.offsetWidth, container.offsetHeight);
+      }
+    };
+
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
     if (renditionRef.current) {
       applyReaderStyles(renditionRef.current);
     }
@@ -197,10 +184,7 @@ function App() {
   return (
     <main className={`app-shell ${isDarkMode ? "theme-dark" : "theme-light"}`}>
       <header className="topbar">
-        <div>
-          <h1>OpenShelf</h1>
-          <p>Local EPUB Reader</p>
-        </div>
+        <h1>OpenShelf</h1>
 
         <label className="file-input">
           <input type="file" accept=".epub,application/epub+zip" onChange={loadFile} />
@@ -225,64 +209,40 @@ function App() {
         <button type="button" onClick={toggleViewMode} disabled={!hasBook}>
           {viewMode === "single" ? "1 Page" : "2 Pages"}
         </button>
-      </section>
-
-      <section className="display-options">
-        <strong>Display options</strong>
 
         <label>
-          Text size
-          <input
-            type="range"
-            min={80}
-            max={160}
-            step={10}
-            value={fontScale}
-            onChange={(event) => setFontScale(Number(event.target.value))}
-          />
-          <span>{fontScale}%</span>
+          Size
+          <select value={fontScale} onChange={(event) => setFontScale(Number(event.target.value))}>
+            {[90, 100, 110, 120, 140].map((size) => (
+              <option key={size} value={size}>
+                {size}%
+              </option>
+            ))}
+          </select>
         </label>
 
         <label>
-          Letter spacing
-          <input
-            type="range"
-            min={0}
-            max={0.08}
-            step={0.01}
+          Letter
+          <select
             value={letterSpacing}
             onChange={(event) => setLetterSpacing(Number(event.target.value))}
-          />
-          <span>{letterSpacing.toFixed(2)}em</span>
+          >
+            {[0, 0.01, 0.03, 0.05].map((space) => (
+              <option key={space} value={space}>
+                {space.toFixed(2)}em
+              </option>
+            ))}
+          </select>
         </label>
 
-        <button type="button" onClick={() => setIsDarkMode((prev) => !prev)}>
+        <button type="button" onClick={() => setIsDarkMode((prev) => !prev)} disabled={!hasBook}>
           {isDarkMode ? "Light mode" : "Dark mode"}
         </button>
       </section>
 
-      <section className="layout">
-        <aside className="toc">
-          <h2>Contents</h2>
-          {toc.length === 0 ? (
-            <p>No table of contents yet.</p>
-          ) : (
-            <ul>
-              {toc.map((item) => (
-                <li key={item.href}>
-                  <button type="button" onClick={() => goToTocItem(item.href)}>
-                    {item.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </aside>
-
-        <article className="viewer-wrap">
-          <div ref={viewerRef} className="viewer" />
-        </article>
-      </section>
+      <article className="viewer-wrap">
+        <div ref={viewerRef} className="viewer" />
+      </article>
     </main>
   );
 }
