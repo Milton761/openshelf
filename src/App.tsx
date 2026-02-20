@@ -1,9 +1,12 @@
 import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
 import ePub from "epubjs";
 import "./App.css";
 
 type Metadata = {
   title?: string;
+  creator?: string;
 };
 
 type RenditionLike = {
@@ -42,6 +45,11 @@ function App() {
   const [title, setTitle] = useState<string>("No book loaded");
   const [error, setError] = useState<string>("");
   const [hasBook, setHasBook] = useState(false);
+  const [fileBuffer, setFileBuffer] = useState<ArrayBuffer | null>(null);
+  const [coverCandidates, setCoverCandidates] = useState<
+    { url: string; source: string; title?: string; id?: string }[]
+  >([]);
+  const [coverPanelOpen, setCoverPanelOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"single" | "double">("single");
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [fontScale, setFontScale] = useState(100);
@@ -113,7 +121,9 @@ function App() {
         return;
       }
 
-      const fileBuffer = await file.arrayBuffer();
+      const fileBufferLocal = await file.arrayBuffer();
+      setFileBuffer(fileBufferLocal);
+      const fileBuffer = fileBufferLocal;
       const book = ePub(fileBuffer) as unknown as BookLike;
       bookRef.current = book;
 
@@ -195,6 +205,132 @@ function App() {
     }
   }, [isDarkMode]);
 
+  const queryCoverCandidates = async () => {
+    // Use title/author from metadata if available
+    const meta = await bookRef.current?.loaded.metadata.catch(() => ({} as Metadata));
+    const qParts: string[] = [];
+    if (meta?.title) qParts.push(`intitle:${meta.title}`);
+    const searchTitle = meta?.title || title || fileName || "";
+
+    const authors = (meta && (meta as Metadata).creator) || "";
+
+    const candidates: { url: string; source: string; title?: string; id?: string }[] = [];
+
+    // Google Books search
+    try {
+      const gbQuery = encodeURIComponent(`${searchTitle} ${authors}`.trim());
+      const gbResp = await fetch(
+        `https://www.googleapis.com/books/v1/volumes?q=${gbQuery}&maxResults=10`,
+      );
+      const gbJson = await gbResp.json();
+      if (gbJson.items) {
+        for (const item of gbJson.items) {
+          const info = item.volumeInfo || {};
+          if (info.imageLinks && info.imageLinks.thumbnail) {
+            candidates.push({ url: info.imageLinks.thumbnail, source: "Google Books", title: info.title, id: item.id });
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // Open Library search
+    try {
+      const olQuery = encodeURIComponent(searchTitle);
+      const olResp = await fetch(`https://openlibrary.org/search.json?title=${olQuery}&limit=10`);
+      const olJson = await olResp.json();
+      if (olJson.docs) {
+        for (const doc of olJson.docs) {
+          if (doc.cover_i) {
+            const url = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
+            candidates.push({ url, source: "Open Library", title: doc.title, id: doc.key });
+          } else if (doc.isbn && doc.isbn.length) {
+            const url = `https://covers.openlibrary.org/b/isbn/${doc.isbn[0]}-L.jpg`;
+            candidates.push({ url, source: "Open Library", title: doc.title, id: doc.key });
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    setCoverCandidates(candidates);
+    setCoverPanelOpen(true);
+  };
+
+  const applyCoverToEpub = async (imageUrl: string) => {
+    if (!fileBuffer) {
+      setError("Original EPUB file not available to modify.");
+      return;
+    }
+
+    try {
+      const zip = await JSZip.loadAsync(fileBuffer);
+
+      // Find OPF path from META-INF/container.xml
+      const containerPath = "META-INF/container.xml";
+      const containerFile = zip.file(containerPath);
+      if (!containerFile) throw new Error("container.xml not found in EPUB");
+      const containerText = await containerFile.async("text");
+      const parser = new DOMParser();
+      const contDoc = parser.parseFromString(containerText, "application/xml");
+      const rootfile = contDoc.querySelector("rootfile");
+      const opfPath = rootfile?.getAttribute("full-path") || "";
+
+      if (!opfPath) throw new Error("OPF path not found in container.xml");
+
+      // fetch image
+      const imgResp = await fetch(imageUrl);
+      const imgBuffer = await imgResp.arrayBuffer();
+
+      const opfFile = zip.file(opfPath);
+      if (!opfFile) throw new Error("OPF file not found");
+      const opfText = await opfFile.async("text");
+      const opfDoc = parser.parseFromString(opfText, "application/xml");
+
+      // Determine base path for resources
+      const basePath = opfPath.includes("/") ? opfPath.substring(0, opfPath.lastIndexOf("/") + 1) : "";
+      const imageRelPath = `${basePath}images/cover.jpg`;
+
+      // add image file
+      zip.file(imageRelPath, imgBuffer);
+
+      // update manifest
+      const manifest = opfDoc.querySelector("manifest");
+      if (manifest) {
+        const existing = manifest.querySelector('item[href="images/cover.jpg"]');
+        if (!existing) {
+          const item = opfDoc.createElement("item");
+          item.setAttribute("id", "cover-image");
+          item.setAttribute("href", `images/cover.jpg`);
+          item.setAttribute("media-type", "image/jpeg");
+          manifest.appendChild(item);
+        }
+      }
+
+      // add <meta name="cover" content="cover-image"/>
+      const metadataEl = opfDoc.querySelector("metadata");
+      if (metadataEl) {
+        const metaCover = opfDoc.createElement("meta");
+        metaCover.setAttribute("name", "cover");
+        metaCover.setAttribute("content", "cover-image");
+        metadataEl.appendChild(metaCover);
+      }
+
+      const serializer = new XMLSerializer();
+      const newOpfText = serializer.serializeToString(opfDoc);
+      zip.file(opfPath, newOpfText);
+
+      const newBlob = await zip.generateAsync({ type: "blob" });
+      const outName = fileName ? fileName.replace(/\.epub$/i, "") + "-with-cover.epub" : "book-with-cover.epub";
+      saveAs(newBlob, outName);
+      setCoverPanelOpen(false);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
   return (
     <main className={`app-shell ${isDarkMode ? "theme-dark" : "theme-light"}`}>
       <header className="topbar">
@@ -257,6 +393,10 @@ function App() {
         <button type="button" onClick={() => setIsDarkMode((prev) => !prev)}>
           {isDarkMode ? "Light mode" : "Dark mode"}
         </button>
+
+        <button type="button" onClick={queryCoverCandidates} disabled={!hasBook}>
+          Find covers
+        </button>
       </section>
 
       <article className="viewer-wrap">
@@ -274,6 +414,28 @@ function App() {
           )}
         </div>
       </article>
+
+      {coverPanelOpen && (
+        <div className="cover-panel">
+          <header>
+            <strong>Cover candidates</strong>
+            <button onClick={() => setCoverPanelOpen(false)}>Close</button>
+          </header>
+          <div className="cover-grid">
+            {coverCandidates.length === 0 && <p>No candidates found.</p>}
+            {coverCandidates.map((c, idx) => (
+              <div key={idx} className="cover-item">
+                <img src={c.url} alt={c.title || "cover"} />
+                <div className="meta">{c.source}</div>
+                <div className="actions">
+                  <a href={c.url} target="_blank" rel="noreferrer">Open</a>
+                  <button onClick={() => applyCoverToEpub(c.url)}>Use as cover</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

@@ -151,6 +151,48 @@
   display: block;
 }
 
+.cover-panel {
+  position: absolute;
+  inset: 2.5rem 0 0 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 0.5rem;
+  z-index: 30;
+}
+
+.cover-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cover-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.cover-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.cover-item img {
+  width: 120px;
+  height: 160px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.cover-item .actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     padding: 0.5rem;
