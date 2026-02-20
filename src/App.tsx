@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import ePub from "epubjs";
 import "./App.css";
 
@@ -22,6 +22,10 @@ type RenditionLike = {
   destroy: () => void;
   resize: (width: number, height: number) => void;
   spread: (mode: "none" | "auto") => void;
+  themes?: {
+    fontSize: (size: string) => void;
+    default: (styles: Record<string, Record<string, string>>) => void;
+  };
 };
 
 type BookLike = {
@@ -49,6 +53,31 @@ function App() {
   const [error, setError] = useState<string>("");
   const [hasBook, setHasBook] = useState(false);
   const [viewMode, setViewMode] = useState<"single" | "double">("single");
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [fontScale, setFontScale] = useState(100);
+  const [letterSpacing, setLetterSpacing] = useState(0);
+
+  const applyReaderStyles = useCallback(
+    (rendition: RenditionLike) => {
+      if (!rendition.themes) {
+        return;
+      }
+
+      rendition.themes.fontSize(`${fontScale}%`);
+      rendition.themes.default({
+        body: {
+          "background-color": isDarkMode ? "#111827" : "#ffffff",
+          color: isDarkMode ? "#f9fafb" : "#111827",
+          "line-height": "1.6",
+          "letter-spacing": `${letterSpacing}em`,
+        },
+        a: {
+          color: isDarkMode ? "#93c5fd" : "#1d4ed8",
+        },
+      });
+    },
+    [fontScale, isDarkMode, letterSpacing],
+  );
 
   const destroyBook = () => {
     renditionRef.current?.destroy();
@@ -119,6 +148,7 @@ function App() {
       });
 
       renditionRef.current = rendition;
+      applyReaderStyles(rendition);
       await rendition.display();
       setHasBook(true);
     } catch {
@@ -158,8 +188,14 @@ function App() {
     }
   }, [viewMode]);
 
+  useEffect(() => {
+    if (renditionRef.current) {
+      applyReaderStyles(renditionRef.current);
+    }
+  }, [applyReaderStyles]);
+
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${isDarkMode ? "theme-dark" : "theme-light"}`}>
       <header className="topbar">
         <div>
           <h1>OpenShelf</h1>
@@ -188,6 +224,40 @@ function App() {
         </button>
         <button type="button" onClick={toggleViewMode} disabled={!hasBook}>
           {viewMode === "single" ? "1 Page" : "2 Pages"}
+        </button>
+      </section>
+
+      <section className="display-options">
+        <strong>Display options</strong>
+
+        <label>
+          Text size
+          <input
+            type="range"
+            min={80}
+            max={160}
+            step={10}
+            value={fontScale}
+            onChange={(event) => setFontScale(Number(event.target.value))}
+          />
+          <span>{fontScale}%</span>
+        </label>
+
+        <label>
+          Letter spacing
+          <input
+            type="range"
+            min={0}
+            max={0.08}
+            step={0.01}
+            value={letterSpacing}
+            onChange={(event) => setLetterSpacing(Number(event.target.value))}
+          />
+          <span>{letterSpacing.toFixed(2)}em</span>
+        </label>
+
+        <button type="button" onClick={() => setIsDarkMode((prev) => !prev)}>
+          {isDarkMode ? "Light mode" : "Dark mode"}
         </button>
       </section>
 

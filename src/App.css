@@ -1,9 +1,25 @@
 .app-shell {
+  --border: #d0d7de;
+  --surface: #ffffff;
+  --surface-muted: #f6f8fa;
+  --text: #111827;
+  --text-muted: rgba(17, 24, 39, 0.75);
+  --error: #b42318;
   max-width: 1200px;
   margin: 0 auto;
   padding: 1rem;
   display: grid;
   gap: 1rem;
+  color: var(--text);
+}
+
+.theme-dark {
+  --border: #334155;
+  --surface: #0f172a;
+  --surface-muted: #1e293b;
+  --text: #f8fafc;
+  --text-muted: rgba(248, 250, 252, 0.75);
+  --error: #fca5a5;
 }
 
 .topbar {
@@ -19,7 +35,7 @@
 
 .topbar p {
   margin: 0.25rem 0 0;
-  opacity: 0.75;
+  color: var(--text-muted);
 }
 
 .file-input {
@@ -37,9 +53,11 @@
 
 .file-input span,
 .controls button,
-.toc button {
-  border: 1px solid #d0d7de;
-  background: #f6f8fa;
+.toc button,
+.display-options button {
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  color: var(--text);
   padding: 0.5rem 0.75rem;
   border-radius: 0.5rem;
   cursor: pointer;
@@ -52,17 +70,45 @@
 }
 
 .book-meta small {
-  opacity: 0.8;
+  color: var(--text-muted);
 }
 
 .error-text {
-  color: #b42318;
+  color: var(--error);
   margin: 0;
 }
 
 .controls {
   display: flex;
   gap: 0.5rem;
+}
+
+.display-options {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.display-options label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.95rem;
+}
+
+.display-options input[type="range"] {
+  width: 100%;
+}
+
+.display-options span {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.display-options button {
+  width: fit-content;
 }
 
 .layout {
@@ -73,10 +119,11 @@
 }
 
 .toc {
-  border: 1px solid #d0d7de;
+  border: 1px solid var(--border);
   border-radius: 0.75rem;
   padding: 0.75rem;
   overflow: auto;
+  background: var(--surface);
 }
 
 .toc h2 {
@@ -99,10 +146,10 @@
 }
 
 .viewer-wrap {
-  border: 1px solid #d0d7de;
+  border: 1px solid var(--border);
   border-radius: 0.75rem;
   padding: 0.75rem;
-  background: #fff;
+  background: var(--surface);
 }
 
 .viewer {
