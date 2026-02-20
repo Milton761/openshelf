@@ -33,6 +33,7 @@ type BookLike = {
 
 function App() {
   const viewerRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const bookRef = useRef<BookLike | null>(null);
   const renditionRef = useRef<RenditionLike | null>(null);
   const currentUrlRef = useRef<string | null>(null);
@@ -187,7 +188,12 @@ function App() {
         <h1>OpenShelf</h1>
 
         <label className="file-input">
-          <input type="file" accept=".epub,application/epub+zip" onChange={loadFile} />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".epub,application/epub+zip"
+            onChange={loadFile}
+          />
           <span>Open EPUB</span>
         </label>
       </header>
@@ -241,13 +247,19 @@ function App() {
       </section>
 
       <article className="viewer-wrap">
-        {!hasBook && (
-          <div className="empty-state" role="status" aria-live="polite">
-            <strong>No book selected</strong>
-            <p>Open an EPUB file to start reading.</p>
-          </div>
-        )}
-        <div ref={viewerRef} className="viewer" />
+        <div ref={viewerRef} className={`viewer ${!hasBook ? "viewer-empty" : ""}`}>
+          {!hasBook && (
+            <button
+              type="button"
+              className="empty-state"
+              onClick={() => fileInputRef.current?.click()}
+              aria-label="Open EPUB file"
+            >
+              <strong>No book selected</strong>
+              <p>Open an EPUB file to start reading.</p>
+            </button>
+          )}
+        </div>
       </article>
     </main>
   );
