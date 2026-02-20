@@ -52,4 +52,23 @@ app.get('/search', async (req, res) => {
   }
 });
 
+// Image proxy endpoint to avoid CORS issues in the browser.
+// Usage: /image?url=<encoded image url>
+app.get('/image', async (req, res) => {
+  const target = (req.query.url || '').toString();
+  if (!target) return res.status(400).send('missing url');
+
+  try {
+    const resp = await fetch(target, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const contentType = resp.headers.get('content-type') || 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+    // allow browser to fetch this resource from a different origin
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    const buffer = await resp.arrayBuffer();
+    return res.send(Buffer.from(buffer));
+  } catch (err) {
+    return res.status(502).json({ error: String(err) });
+  }
+});
+
 app.listen(PORT, () => console.log(`openshelf-amazon-proxy listening on ${PORT}`));

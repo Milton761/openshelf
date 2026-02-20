@@ -47,7 +47,7 @@ function App() {
   const [hasBook, setHasBook] = useState(false);
   const [fileBuffer, setFileBuffer] = useState<ArrayBuffer | null>(null);
   const [coverCandidates, setCoverCandidates] = useState<
-    { url: string; source: string; title?: string; id?: string }[]
+    { url: string; source: string; title?: string; id?: string; original?: string }[]
   >([]);
   const [selectedCoverUrl, setSelectedCoverUrl] = useState<string | null>(null);
   const [coverPanelOpen, setCoverPanelOpen] = useState(false);
@@ -223,7 +223,7 @@ function App() {
 
     const candidates: { url: string; source: string; title?: string; id?: string }[] = [];
 
-    // Google Books search
+    // Google Books search - prefer largest available image
     try {
       const gbQuery = encodeURIComponent(`${searchTitle} ${authors}`.trim());
       const gbResp = await fetch(
@@ -233,8 +233,12 @@ function App() {
       if (gbJson.items) {
         for (const item of gbJson.items) {
           const info = item.volumeInfo || {};
-          if (info.imageLinks && info.imageLinks.thumbnail) {
-            candidates.push({ url: info.imageLinks.thumbnail, source: "Google Books", title: info.title, id: item.id });
+          if (info.imageLinks) {
+            const links = info.imageLinks;
+            const best = links.extraLarge || links.large || links.medium || links.small || links.thumbnail;
+            if (best) {
+              candidates.push({ url: best, source: "Google Books", title: info.title, id: item.id });
+            }
           }
         }
       }
@@ -277,7 +281,10 @@ function App() {
       const resp = await fetch(`http://localhost:4001/search?query=${encodeURIComponent(searchTitle)}`);
       const json = await resp.json();
       if (Array.isArray(json)) {
-        const candidates = json.map((x) => ({ url: x.url, source: x.source || 'Amazon', title: x.title }));
+        const candidates = json.map((x) => {
+          const proxied = `http://localhost:4001/image?url=${encodeURIComponent(x.url)}`;
+          return { url: proxied, source: x.source || 'Amazon', title: x.title, original: x.url };
+        });
         setCoverCandidates(candidates);
         setCoverPanelOpen(true);
       }
@@ -309,9 +316,23 @@ function App() {
 
       if (!opfPath) throw new Error("OPF path not found in container.xml");
 
-      // fetch image
-      const imgResp = await fetch(imageUrl);
-      const imgBuffer = await imgResp.arrayBuffer();
+      // fetch image (try direct, then proxy if direct fails)
+      let imgBuffer: ArrayBuffer;
+      try {
+        const imgResp = await fetch(imageUrl);
+        if (!imgResp.ok) throw new Error('Image fetch failed');
+        imgBuffer = await imgResp.arrayBuffer();
+      } catch (firstErr) {
+        // If the direct fetch failed (likely CORS), try the local proxy if available
+        try {
+          const proxyUrl = `http://localhost:4001/image?url=${encodeURIComponent(imageUrl)}`;
+          const proxied = await fetch(proxyUrl);
+          if (!proxied.ok) throw new Error('Proxy image fetch failed');
+          imgBuffer = await proxied.arrayBuffer();
+        } catch {
+          throw firstErr;
+        }
+      }
 
       const opfFile = zip.file(opfPath);
       if (!opfFile) throw new Error("OPF file not found");
@@ -323,6 +344,21 @@ function App() {
       const imageRelPath = `${basePath}images/cover.jpg`;
 
       // add image file
+      // helper: detect image mime type from bytes
+      const detectMime = (buf: ArrayBuffer) => {
+        try {
+          const bytes = new Uint8Array(buf);
+          if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+          if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png';
+          if (bytes.length >= 3 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'image/gif';
+          if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42) return 'image/webp';
+        } catch {
+          /* ignore */
+        }
+        return 'image/jpeg';
+      };
+
+      const coverMimeType = detectMime(imgBuffer);
       zip.file(imageRelPath, imgBuffer);
 
       // update manifest
@@ -333,7 +369,7 @@ function App() {
           const item = opfDoc.createElement("item");
           item.setAttribute("id", "cover-image");
           item.setAttribute("href", `images/cover.jpg`);
-          item.setAttribute("media-type", "image/jpeg");
+          item.setAttribute("media-type", coverMimeType || "image/jpeg");
           manifest.appendChild(item);
         }
       }
@@ -347,56 +383,181 @@ function App() {
         metadataEl.appendChild(metaCover);
       }
 
-      // Attempt to insert the cover image into the first spine item (first page)
+      // Replace cover-related pages: look for manifest/spine items that reference a cover
       try {
-        const spine = opfDoc.querySelector("spine");
-        const firstItemref = spine?.querySelector("itemref");
-        const idref = firstItemref?.getAttribute("idref");
-        if (idref) {
-          const manifestItem = opfDoc.querySelector(`manifest > item[id="${idref}"]`);
-          const firstHref = manifestItem?.getAttribute("href");
-          if (firstHref) {
-            const firstPath = basePath + firstHref;
-            const firstFile = zip.file(firstPath);
-            if (firstFile) {
-              const firstText = await firstFile.async("text");
-              const firstDoc = parser.parseFromString(firstText, "text/html");
+        // helper to detect mime type from ArrayBuffer
+        const detectMime = (buf: ArrayBuffer) => {
+          try {
+            const bytes = new Uint8Array(buf);
+            if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+            if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png';
+            if (bytes.length >= 3 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'image/gif';
+            if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42) return 'image/webp';
+          } catch {
+            /* ignore */
+          }
+          return 'application/octet-stream';
+        };
 
-              const body = firstDoc.querySelector("body");
-              if (body) {
-                const existingCoverImg = body.querySelector('img[src$="cover.jpg"]');
-                if (!existingCoverImg) {
-                  const wrapper = firstDoc.createElement("div");
-                  wrapper.setAttribute("class", "cover-wrapper");
-                  const img = firstDoc.createElement("img");
-                  img.setAttribute("src", `images/cover.jpg`);
-                  img.setAttribute("alt", "Cover");
-                  wrapper.appendChild(img);
-                  body.insertBefore(wrapper, body.firstChild);
+        // helper to convert ArrayBuffer to base64
+        const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
+          let binary = '';
+          const bytes = new Uint8Array(buffer);
+          const chunk = 0x8000;
+          for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)) as unknown as number[]);
+          }
+          return btoa(binary);
+        };
 
-                  const localSerializer = new XMLSerializer();
-                  const newFirstText = localSerializer.serializeToString(firstDoc);
-                  zip.file(firstPath, newFirstText);
-                }
-              }
+        const coverMime = detectMime(imgBuffer);
+        const coverDataUri = `data:${coverMime};base64,${arrayBufferToBase64(imgBuffer)}`;
+        const candidatePaths = new Set<string>();
+
+        // Heuristic A: manifest items with id/href/properties containing 'cover'
+        const manifestItems = Array.from(opfDoc.querySelectorAll('manifest > item'));
+        for (const item of manifestItems) {
+          const id = item.getAttribute('id') || '';
+          const href = item.getAttribute('href') || '';
+          const props = item.getAttribute('properties') || '';
+          const mediaType = item.getAttribute('media-type') || '';
+          if (/cover/i.test(id) || /cover/i.test(href) || /cover/i.test(props)) {
+            if (/xhtml|html/i.test(mediaType) || href.match(/\.xhtml?$|\.html?$/i)) {
+              candidatePaths.add(basePath + href);
             }
           }
         }
+
+        // Heuristic B: first spine item (often the cover page)
+        const spine = opfDoc.querySelector('spine');
+        const firstItemref = spine?.querySelector('itemref');
+        const firstIdref = firstItemref?.getAttribute('idref');
+        if (firstIdref) {
+          const mi = opfDoc.querySelector(`manifest > item[id="${firstIdref}"]`);
+          const fh = mi?.getAttribute('href');
+          if (fh) candidatePaths.add(basePath + fh);
+        }
+
+        // Heuristic C: scan all spine items for elements that look like a cover (img with cover in src or class/id)
+        const spineItemrefs = Array.from(opfDoc.querySelectorAll('spine > itemref'));
+        for (const ir of spineItemrefs) {
+          const idref = ir.getAttribute('idref') || '';
+          const mi = opfDoc.querySelector(`manifest > item[id="${idref}"]`);
+          const href = mi?.getAttribute('href') || '';
+          const mediaType = mi?.getAttribute('media-type') || '';
+          if (!href) continue;
+          if (!/xhtml|html/i.test(mediaType) && !href.match(/\.xhtml?$|\.html?$/i)) continue;
+          const fullPath = basePath + href;
+          const file = zip.file(fullPath);
+          if (!file) continue;
+          try {
+            const txt = await file.async('text');
+            const doc = parser.parseFromString(txt, 'text/html');
+            const foundImg = doc.querySelector('img[src*="cover"], img[class*="cover"], img[id*="cover"]');
+            const foundCoverClass = doc.querySelector('[class*="cover"], [id*="cover"]');
+            const foundMetaCover = doc.querySelector('meta[name="cover"]');
+            if (foundImg || foundCoverClass || foundMetaCover) candidatePaths.add(fullPath);
+          } catch {
+            // ignore parse errors for individual spine files
+          }
+        }
+
+
+
+        // Modify each candidate path: replace existing cover <img> src to images/cover.jpg or insert wrapper
+        for (const path of candidatePaths) {
+          const f = zip.file(path);
+          if (!f) continue;
+          try {
+            const txt = await f.async('text');
+            const doc = parser.parseFromString(txt, 'text/html');
+            let modified = false;
+
+            // Replace existing cover-like <img> src
+            const imgs = Array.from(doc.querySelectorAll('img'));
+            for (const img of imgs) {
+              const src = img.getAttribute('src') || '';
+              if (/cover/i.test(src) || /cover/i.test(img.getAttribute('class') || '') || /cover/i.test(img.getAttribute('id') || '')) {
+                // inline as data URI to avoid resolution issues and force sizing styles
+                img.setAttribute('src', coverDataUri);
+                img.setAttribute('style', 'display:block;max-width:100%;height:auto;margin:0 auto;object-fit:contain;');
+                modified = true;
+              }
+            }
+
+            // If nothing replaced, insert a cover wrapper at the start of <body>
+            if (!modified) {
+              const body = doc.querySelector('body');
+              if (body) {
+                const wrapper = doc.createElement('div');
+                wrapper.setAttribute('class', 'cover-wrapper');
+                wrapper.setAttribute('style', 'display:flex;align-items:center;justify-content:center;padding:0;margin:0;');
+                const img = doc.createElement('img');
+                img.setAttribute('src', coverDataUri);
+                img.setAttribute('alt', 'Cover');
+                img.setAttribute('style', 'max-width:100%;max-height:100vh;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto;');
+                wrapper.appendChild(img);
+                body.insertBefore(wrapper, body.firstChild);
+                modified = true;
+              }
+            }
+
+            if (modified) {
+              const localSerializer = new XMLSerializer();
+              const newText = localSerializer.serializeToString(doc);
+              zip.file(path, newText);
+            }
+          } catch {
+            // non-fatal for individual candidate files
+          }
+        }
       } catch {
-        // non-fatal: if we can't inject into the first page, continue
+        // non-fatal: continue if we can't update cover pages
       }
 
       const serializer = new XMLSerializer();
       const newOpfText = serializer.serializeToString(opfDoc);
       zip.file(opfPath, newOpfText);
 
-      const newBlob = await zip.generateAsync({ type: "blob" });
-      // show preview immediately
+      // Repack EPUB ensuring the 'mimetype' file is the first entry and uncompressed
+      const outZip = new JSZip();
+      // Preserve mimetype as first, uncompressed entry if present
+      const mimeFile = zip.file('mimetype');
+      if (mimeFile) {
+        try {
+          const mimeBuf = await mimeFile.async('arraybuffer');
+          outZip.file('mimetype', mimeBuf, { compression: 'STORE' });
+        } catch {
+          // ignore
+        }
+      }
+
+      // Copy all other files from original zip into outZip
+      const filesToCopy: string[] = [];
+      zip.forEach((relativePath) => filesToCopy.push(relativePath));
+      for (const path of filesToCopy) {
+        if (path === 'mimetype') continue;
+        const f = zip.file(path);
+        if (!f) continue;
+        try {
+          const data = await f.async('arraybuffer');
+          outZip.file(path, data);
+        } catch {
+          // fallback: try as text
+          try {
+            const text = await f.async('text');
+            outZip.file(path, text);
+          } catch {
+            // give up on this file
+          }
+        }
+      }
+
+      const newBlob = await outZip.generateAsync({ type: 'blob' });
+      // show preview immediately (create blob from fetched buffer)
       try {
-        const imgResp = await fetch(imageUrl);
-        const imgBuf = await imgResp.blob();
-        const previewUrl = URL.createObjectURL(imgBuf);
-        // revoke previous preview if present
+        const imgBlob = new Blob([imgBuffer]);
+        const previewUrl = URL.createObjectURL(imgBlob);
         if (coverPreviewUrl) URL.revokeObjectURL(coverPreviewUrl);
         setCoverPreviewUrl(previewUrl);
       } catch {
@@ -554,15 +715,15 @@ function App() {
             {coverCandidates.length === 0 && <p>No candidates found.</p>}
             {coverCandidates.map((c, idx) => (
               <div
-                key={idx}
-                className={`cover-item ${selectedCoverUrl === c.url ? 'selected' : ''}`}
-                onClick={() => setSelectedCoverUrl(c.url)}
-                role="button"
-                tabIndex={0}
-              >
-                <img src={c.url} alt={c.title || 'cover'} />
-                <div className="meta">{c.source}</div>
-              </div>
+                  key={idx}
+                  className={`cover-item ${selectedCoverUrl === (c.original || c.url) ? 'selected' : ''}`}
+                  onClick={() => setSelectedCoverUrl(c.original || c.url)}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <img src={c.url} alt={c.title || 'cover'} />
+                  <div className="meta">{c.source}</div>
+                </div>
             ))}
             <div className="cover-item">
               <label style={{width: '100%'}}>
